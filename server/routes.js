@@ -120,6 +120,37 @@ router.post('/records/submit', authMiddleware, (req, res) => {
   const { sales, notes } = req.body
   const today = dayjs().format('YYYY-MM-DD')
 
+  const drinksMap = new Map()
+  db.prepare('SELECT * FROM drinks').all().forEach(d => drinksMap.set(d.id, d))
+
+  const ingMap = new Map()
+  db.prepare('SELECT * FROM ingredients').all().forEach(i => ingMap.set(i.name, i))
+  const beanStock = ingMap.get('咖啡豆')?.stock ?? Infinity
+  const milkStock = ingMap.get('全脂牛奶')?.stock ?? Infinity
+
+  const soldOutNames = []
+  for (const s of sales || []) {
+    if (!s.quantity || s.quantity <= 0) continue
+    const drink = drinksMap.get(s.drink_id)
+    if (!drink) continue
+    if (drink.active === 0) {
+      soldOutNames.push(drink.name + ' (已下架)')
+      continue
+    }
+    const needBean = (drink.coffee_g || 0) * s.quantity
+    const needMilk = (drink.milk_ml || 0) * s.quantity
+    if (beanStock < needBean || milkStock < needMilk) {
+      soldOutNames.push(drink.name)
+    }
+  }
+
+  if (soldOutNames.length > 0) {
+    return res.status(400).json({
+      error: '部分饮品已售罄',
+      soldOutNames: soldOutNames
+    })
+  }
+
   const tx = db.transaction(() => {
     let record = db.prepare('SELECT * FROM daily_records WHERE record_date = ?').get(today)
     if (record) {

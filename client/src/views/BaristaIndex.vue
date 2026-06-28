@@ -181,21 +181,30 @@ async function submit() {
     const newSoldOut = []
     const drinkMap = new Map(drinks.value.map(d => [d.id, d]))
     const sales = []
+    const removeIds = []
 
     for (const [id, qty] of Object.entries(qtyMap.value)) {
       if (qty <= 0) continue
-      const drink = drinkMap.get(Number(id))
+      const numId = Number(id)
+      const drink = drinkMap.get(numId)
       const check = isDrinkSoldOut(drink, qty)
       if (check.soldOut) {
         newSoldOut.push(drink?.name || '未知饮品')
+        removeIds.push(numId)
         continue
       }
-      sales.push({ drink_id: Number(id), quantity: qty })
+      sales.push({ drink_id: numId, quantity: qty })
     }
 
-    if (newSoldOut.length > 0) {
+    if (removeIds.length > 0) {
+      for (const id of removeIds) delete qtyMap.value[id]
       soldOutNames.value = newSoldOut
-      toast('部分饮品刚售罄，已从清单中移除')
+      toast('以下饮品刚售罄，已从清单中移除：' + newSoldOut.join('、'))
+      return
+    }
+
+    if (sales.length === 0) {
+      toast('没有可提交的饮品')
       return
     }
 
@@ -204,7 +213,20 @@ async function submit() {
     hasRecord.value = true
     soldOutNames.value = []
   } catch (e) {
-    toast(e.message)
+    const serverSoldOut = e.data?.soldOutNames
+    if (serverSoldOut && serverSoldOut.length > 0) {
+      const drinkMap = new Map(drinks.value.map(d => [d.id, d]))
+      const nameToId = new Map(drinks.value.map(d => [d.name, d.id]))
+      for (const name of serverSoldOut) {
+        const pureName = name.replace(/\s*\(已下架\)\s*$/, '')
+        const id = nameToId.get(pureName)
+        if (id != null) delete qtyMap.value[id]
+      }
+      soldOutNames.value = serverSoldOut
+      toast('以下饮品已售罄，已从清单中移除：' + serverSoldOut.join('、'))
+    } else {
+      toast(e.message)
+    }
   } finally {
     submitting.value = false
   }

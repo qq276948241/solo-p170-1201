@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import api from '../api'
+import { api } from '../api'
 
 export function useAvailableDrinks() {
   const drinks = ref([])
