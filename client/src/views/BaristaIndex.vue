@@ -101,6 +101,7 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { useCartStore } from '../stores/cart'
 import { api } from '../api'
+import { useAvailableDrinks } from '../composables/useAvailableDrinks'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -108,7 +109,8 @@ const cartStore = useCartStore()
 const toast = inject('toast')
 const displayName = computed(() => userStore.displayName)
 
-const drinks = ref([])
+const { drinks, fetchLatestStatus, isDrinkSoldOut } = useAvailableDrinks()
+
 const qtyMap = ref({})
 const notes = ref('')
 const submitting = ref(false)
@@ -148,8 +150,7 @@ function dismissSoldOut() {
 
 async function loadData() {
   try {
-    const [dRes, rRes] = await Promise.all([api.getDrinks(), api.getTodayRecord()])
-    drinks.value = dRes.drinks
+    const [, rRes] = await Promise.all([fetchLatestStatus(), api.getTodayRecord()])
 
     const init = {}
     for (const it of rRes.items || []) init[it.drink_id] = it.quantity
@@ -175,12 +176,29 @@ async function submit() {
   }
   submitting.value = true
   try {
-    const sales = Object.entries(qtyMap.value)
-      .filter(([, q]) => q > 0)
-      .map(([id, qty]) => ({
-        drink_id: Number(id),
-        quantity: qty
-      }))
+    await fetchLatestStatus()
+
+    const newSoldOut = []
+    const drinkMap = new Map(drinks.value.map(d => [d.id, d]))
+    const sales = []
+
+    for (const [id, qty] of Object.entries(qtyMap.value)) {
+      if (qty <= 0) continue
+      const drink = drinkMap.get(Number(id))
+      const check = isDrinkSoldOut(drink, qty)
+      if (check.soldOut) {
+        newSoldOut.push(drink?.name || '未知饮品')
+        continue
+      }
+      sales.push({ drink_id: Number(id), quantity: qty })
+    }
+
+    if (newSoldOut.length > 0) {
+      soldOutNames.value = newSoldOut
+      toast('部分饮品刚售罄，已从清单中移除')
+      return
+    }
+
     await api.submitRecord({ sales, notes: notes.value })
     toast(hasRecord.value ? '已更新今日记录 📝' : '记录提交成功 ✨')
     hasRecord.value = true

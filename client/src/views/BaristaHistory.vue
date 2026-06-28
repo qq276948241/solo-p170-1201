@@ -56,6 +56,7 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { useCartStore } from '../stores/cart'
 import { api } from '../api'
+import { useAvailableDrinks } from '../composables/useAvailableDrinks'
 import dayjs from 'dayjs'
 
 const router = useRouter()
@@ -63,6 +64,8 @@ const userStore = useUserStore()
 const cartStore = useCartStore()
 const toast = inject('toast')
 const displayName = computed(() => userStore.displayName)
+
+const { fetchLatestStatus, filterAvailable } = useAvailableDrinks()
 
 const records = ref([])
 const loadingId = ref(null)
@@ -84,10 +87,9 @@ async function reorder(r) {
   if (loadingId.value) return
   loadingId.value = r.id
   try {
-    const [detailRes, drinksRes, ingRes] = await Promise.all([
+    const [detailRes] = await Promise.all([
       api.getRecordItems(r.id),
-      api.getDrinks(),
-      api.getIngredients()
+      fetchLatestStatus()
     ])
 
     const items = detailRes.items || []
@@ -96,35 +98,9 @@ async function reorder(r) {
       return
     }
 
-    const drinkMap = new Map()
-    drinksRes.drinks.forEach(d => drinkMap.set(d.id, d))
-
-    const ingMap = new Map()
-    ingRes.ingredients.forEach(i => ingMap.set(i.name, i))
-    const beanStock = ingMap.get('咖啡豆')?.stock ?? Infinity
-    const milkStock = ingMap.get('全脂牛奶')?.stock ?? Infinity
-
-    const qtyMap = {}
-    const soldOutNames = []
-
-    for (const it of items) {
-      const drink = drinkMap.get(it.drink_id)
-      if (!drink || drink.active === 0) {
-        soldOutNames.push(it.drink_name + ' (已下架)')
-        continue
-      }
-      const needBean = (drink.coffee_g || 0) * it.quantity
-      const needMilk = (drink.milk_ml || 0) * it.quantity
-      const beanShort = beanStock < needBean
-      const milkShort = milkStock < needMilk
-      if (beanShort || milkShort) {
-        soldOutNames.push(drink.name)
-        continue
-      }
-      qtyMap[drink.id] = it.quantity
-    }
-
+    const { qtyMap, soldOutNames } = filterAvailable(items)
     const validCount = Object.keys(qtyMap).length
+
     if (validCount === 0) {
       if (soldOutNames.length > 0) {
         toast('很抱歉，这些饮品今日都已售罄：' + soldOutNames.join('、'))
