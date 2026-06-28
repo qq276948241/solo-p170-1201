@@ -104,6 +104,18 @@ router.post('/records/today', authMiddleware, (req, res) => {
   res.json({ record, items, usages })
 })
 
+router.get('/records/:id/items', authMiddleware, (req, res) => {
+  const record = db.prepare('SELECT * FROM daily_records WHERE id = ?').get(req.params.id)
+  if (!record) return res.status(404).json({ error: '记录不存在' })
+  const items = db.prepare(`
+    SELECT si.*, d.name as drink_name, d.milk_ml, d.coffee_g, d.active
+    FROM sale_items si
+    JOIN drinks d ON si.drink_id = d.id
+    WHERE si.record_id = ?
+  `).all(record.id)
+  res.json({ record, items })
+})
+
 router.post('/records/submit', authMiddleware, (req, res) => {
   const { sales, notes } = req.body
   const today = dayjs().format('YYYY-MM-DD')

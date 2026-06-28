@@ -9,6 +9,16 @@
     </div>
 
     <div class="page">
+      <transition name="fade">
+        <div v-if="soldOutNames.length > 0" class="sold-out-banner" @click="dismissSoldOut">
+          <span class="sold-out-icon">⚠️</span>
+          <span class="sold-out-text">
+            以下饮品今日已售罄未加入：<strong>{{ soldOutNames.join('、') }}</strong>
+          </span>
+          <span class="sold-out-close">✕</span>
+        </div>
+      </transition>
+
       <div class="stat-grid">
         <div class="stat-box">
           <div class="stat-label">今日总杯数</div>
@@ -89,10 +99,12 @@
 import { ref, computed, onMounted, inject } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
+import { useCartStore } from '../stores/cart'
 import { api } from '../api'
 
 const router = useRouter()
 const userStore = useUserStore()
+const cartStore = useCartStore()
 const toast = inject('toast')
 const displayName = computed(() => userStore.displayName)
 
@@ -101,6 +113,7 @@ const qtyMap = ref({})
 const notes = ref('')
 const submitting = ref(false)
 const hasRecord = ref(false)
+const soldOutNames = ref([])
 
 const totalCups = computed(() => Object.values(qtyMap.value).reduce((s, n) => s + n, 0))
 const activeTypes = computed(() => Object.values(qtyMap.value).filter(n => n > 0).length)
@@ -126,15 +139,27 @@ function changeQty(id, delta) {
 function resetAll() {
   qtyMap.value = {}
   notes.value = ''
+  soldOutNames.value = []
   toast('已清空')
+}
+function dismissSoldOut() {
+  soldOutNames.value = []
 }
 
 async function loadData() {
   try {
     const [dRes, rRes] = await Promise.all([api.getDrinks(), api.getTodayRecord()])
     drinks.value = dRes.drinks
+
     const init = {}
     for (const it of rRes.items || []) init[it.drink_id] = it.quantity
+
+    if (cartStore.hasPending) {
+      const pending = cartStore.consumePending()
+      Object.assign(init, pending.qtyMap)
+      soldOutNames.value = pending.soldOutNames || []
+    }
+
     qtyMap.value = init
     notes.value = rRes.record?.notes || ''
     hasRecord.value = (rRes.record?.total_cups || 0) > 0
@@ -159,6 +184,7 @@ async function submit() {
     await api.submitRecord({ sales, notes: notes.value })
     toast(hasRecord.value ? '已更新今日记录 📝' : '记录提交成功 ✨')
     hasRecord.value = true
+    soldOutNames.value = []
   } catch (e) {
     toast(e.message)
   } finally {
@@ -168,8 +194,57 @@ async function submit() {
 
 function logout() {
   userStore.logout()
+  cartStore.clear()
   router.push('/login')
 }
 
 onMounted(loadData)
 </script>
+
+<style scoped>
+.sold-out-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: linear-gradient(135deg, #FFF1E0, #FFE4CC);
+  border: 1px solid #F4C89B;
+  border-radius: 10px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  color: #9C5F14;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.sold-out-banner:hover {
+  background: linear-gradient(135deg, #FFE8CC, #FFDFB3);
+}
+.sold-out-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.sold-out-text {
+  flex: 1;
+  line-height: 1.5;
+}
+.sold-out-text strong {
+  color: #7A4A0F;
+}
+.sold-out-close {
+  flex-shrink: 0;
+  opacity: 0.7;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.sold-out-banner:hover .sold-out-close {
+  background: rgba(156, 95, 20, 0.1);
+  opacity: 1;
+}
+.fade-enter-active, .fade-leave-active {
+  transition: opacity 0.3s, transform 0.3s;
+}
+.fade-enter-from, .fade-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+</style>

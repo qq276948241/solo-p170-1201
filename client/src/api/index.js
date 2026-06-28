@@ -44,6 +44,7 @@ export const api = {
   submitRecord: (data) => request('/records/submit', { method: 'POST', body: data }),
   getRecordsRange: (start, end) =>
     request(`/records/range?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`),
+  getRecordItems: (id) => request('/records/' + id + '/items'),
 
   getWeeklyReport: () => request('/reports/weekly')
 }
